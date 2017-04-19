@@ -1,0 +1,327 @@
+<html>
+	<body onclick="missileHardpoints.fire()">
+		<canvas id="gameplatform" width="1000" height="1000"></canvas>
+	</body>
+	<script type="text/javascript" src="../js/jquery-1.9.0.js"></script>
+	<script type="text/javascript" src="../js/jquery.hotkeys.js"></script>
+	<script type="text/javascript" src="../js/key_status.js"></script>
+	<script>
+		var canvas = document.getElementById('gameplatform');
+		var c = canvas.getContext('2d');
+		var FPS = 30;
+		var missilesFired = [];
+		var incoming = [];
+		var firedMissileExplosions = [];
+		var incomingMissileExplosions = [];
+		var baseLandLineSegments = [
+			{x1:0,y1:1000,x2:null,y2:null},
+			{x1:0,y1:1000,x2:0,y2:800},
+			{x1:0,y1:800,x2:300,y2:800},
+			{x1:300,y1:800,x2:500,y2:720},
+			{x1:500,y1:720,x2:700,y2:720},
+			{x1:700,y1:720,x2:770,y2:750},
+			{x1:770,y1:750,x2:1000,y2:1000}
+		];
+
+		function calculateSlopes(){
+			baseLandCoordinateCount = baseLandLineSegments.length;
+			for(var i=0;i<baseLandCoordinateCount;i++){
+				if(i == 0){
+					c.moveTo(baseLandLineSegments[i].x1, baseLandLineSegments[i].y1);
+				} else {
+					var slope = (baseLandLineSegments[i].y2 - baseLandLineSegments[i].y1)/(baseLandLineSegments[i].x2 - baseLandLineSegments[i].x1);
+					baseLandLineSegments[i].slope = slope;
+					baseLandLineSegments[i].yIntercept = baseLandLineSegments[i].y2 - (baseLandLineSegments[i].x2 * slope);
+					// See generated slopes and y-intercepts
+					// console.log(slope+' '+baseLandLineSegments[i].yIntercept);
+				}
+			}
+		}
+		calculateSlopes();
+		//1: Generate a number of missiles for this one go-around
+		//2: Fire a number of missiles at any one time
+		var incomingMissiles ={
+			fillstyle:"red",
+			generateMissilesForStage:function(){
+				//we can have as many as fifteen missiles standing by
+				var numberOfMissiles = Math.floor((Math.random() * 15) + 1);
+				var selectedLine = 0;
+				for(var i=0; i<numberOfMissiles;i++){
+					var missileOriginAndTarget = {};
+					missileOriginAndTarget.xOrigin = Math.floor((Math.random() *1000)+1);
+					missileOriginAndTarget.yOrigin = 0;
+					missileOriginAndTarget.xNextPoint = missileOriginAndTarget.xOrigin
+					missileOriginAndTarget.yNextPoint = missileOriginAndTarget.yOrigin
+
+					var numberOfLines = baseLandLineSegments.length;
+					do{
+						var selectedLine = Math.floor((Math.random() *(numberOfLines-1)));
+						console.log('selectedLine: '+selectedLine);
+					}while((selectedLine <= 1)||(selectedLine>(numberOfLines-1)));
+
+					if(Number(baseLandLineSegments[selectedLine].slope) == 0){
+						console.log('Chosen Line No Slope::'+selectedLine+' Slope::'+baseLandLineSegments[selectedLine].slope);
+						// Equation For Selecting Between Two Values: Math.floor(Math.random() * ((y-x)+1) + x);
+						missileOriginAndTarget.xTarget =  Math.floor(Math.random() * (Number(baseLandLineSegments[selectedLine].x2)-Number(baseLandLineSegments[selectedLine].x1)+1)+Number(baseLandLineSegments[selectedLine].x1));
+
+						missileOriginAndTarget.yTarget = Number(baseLandLineSegments[selectedLine].y2);
+						console.log('Chosen Line No Slope::'+selectedLine+'::'+missileOriginAndTarget.xTarget +','+missileOriginAndTarget.yTarget)
+					} else {						
+						console.log('Chosen Line With Slope::'+selectedLine+' Slope::'+baseLandLineSegments[selectedLine].slope);
+						missileOriginAndTarget.xTarget = Math.floor(Math.random() * (Number(baseLandLineSegments[selectedLine].x2)-Number(baseLandLineSegments[selectedLine].x1)+1)+Number(baseLandLineSegments[selectedLine].x1));
+						missileOriginAndTarget.yTarget = Number(missileOriginAndTarget.xTarget) * Number(baseLandLineSegments[selectedLine].slope) + Number(baseLandLineSegments[selectedLine].yIntercept);
+						console.log('Chosen Line With Slope::'+selectedLine+'::'+missileOriginAndTarget.xTarget +','+missileOriginAndTarget.yTarget)
+					}
+					// original selection method
+					// missileOriginAndTarget.xTarget = Math.floor((Math.random() *1000)+1);
+					// missileOriginAndTarget.yTarget = 1000;
+					missileOriginAndTarget.active = 1; 
+					incoming.push(missileOriginAndTarget);
+				}
+			},
+			animateIncomingMissiles:function(){
+				var numMissilesLaunched = incoming.length;
+				var velocity = 0.005; 
+				if(numMissilesLaunched > 0){
+					for(var i=0;i<numMissilesLaunched;i++){
+						if (!(Math.abs(Number(incoming[i].xNextPoint) - Number(incoming[i].xTarget)) <= 0.9) && 
+							!(Math.abs(Number(incoming[i].yNextPoint) - Number(incoming[i].yTarget)) <= 0.9) && 
+							(Number(incoming[i].active)==1)) {
+							c.fillStyle="red";
+							c.moveTo(incoming[i].xOrigin,incoming[i].yOrigin);
+							incoming[i].xNextPoint = Number(incoming[i].xNextPoint) + Number((incoming[i].xTarget - incoming[i].xNextPoint) * velocity);
+							incoming[i].yNextPoint = Number(incoming[i].yNextPoint) + Number((incoming[i].yTarget - incoming[i].yNextPoint) * velocity);
+							c.lineTo(incoming[i].xNextPoint,incoming[i].yNextPoint);
+							c.stroke();
+						} else {
+							var explodedIncomingMissile = {};
+							explodedIncomingMissile.x = Number(incoming[i].xNextPoint);
+							explodedIncomingMissile.y = Number(incoming[i].yNextPoint);
+							explodedIncomingMissile.rad = 0;
+							firedMissileExplosions.push(explodedIncomingMissile);
+							incoming[i].active = 0;
+							incoming.splice(i,1); 
+						}
+					}
+				}
+			},
+			checkForInterceptedMissiles:function(){
+				// check if missile was caught in the explosion
+				var numberOfExplosions = firedMissileExplosions.length;
+				var numberOfIncomingMissiles = incoming.length;
+				for(var i=0;i<numberOfExplosions;i++){
+					for(var j=0;j<numberOfIncomingMissiles;j++){
+						if ((Math.abs(Number(incoming[j].xNextPoint) - Math.abs(Number(firedMissileExplosions[i].x))) <= Number(firedMissileExplosions[i].rad)) && 
+							(Math.abs(Number(incoming[j].yNextPoint) - Math.abs(Number(firedMissileExplosions[i].y))) <= Number(firedMissileExplosions[i].rad))) {
+
+							var explodedIncomingMissile = {};
+							explodedIncomingMissile.x = Number(incoming[j].xNextPoint);
+							explodedIncomingMissile.y = Number(incoming[j].yNextPoint);
+							explodedIncomingMissile.rad = 0;
+							firedMissileExplosions.push(explodedIncomingMissile);
+							incoming[j].active = 0;
+						}
+					}
+				}
+			}
+		};
+
+
+		var missileHardpoints = {
+			siloColor:'blue',
+			status:1,
+			hardpointCoordinates:[
+				{"name":"base1", "XCoordinate":"500", "YCoordinate":"720", "numMissiles":"6"},
+				{"name":"base2", "XCoordinate":"700", "YCoordinate":"720", "numMissiles":"6"}
+			],
+			draw:function(){
+				c.fillStyle = this.siloColor;
+				var numberOfBases = this.hardpointCoordinates.length;
+				var missileCoordinates = [];
+				var testCoordinates = []; 
+				for (var i=0; i<numberOfBases;i++){
+
+					for(var j=0;j<this.hardpointCoordinates[i].numMissiles;j++){
+						switch(j){
+							case 0:	
+								testCoordinates = [];
+								testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate);
+								testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate);
+								missileCoordinates.push(testCoordinates);
+								break;
+							case 1:
+							case 2:
+								testCoordinates = [];
+								if(j==1){
+									testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate)-15;
+									testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate)+15;
+									missileCoordinates.push(testCoordinates);
+								} else {
+									testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate)+15;
+									testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate)+15;
+									missileCoordinates.push(testCoordinates);
+								} 
+								break;
+							case 3:
+							case 4:
+							case 5:
+								testCoordinates = [];
+								if(j==3){
+									testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate)-30;
+									testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate)+30;
+									missileCoordinates.push(testCoordinates);
+								} else if (j==4) {
+									testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate);
+									testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate)+30;
+									missileCoordinates.push(testCoordinates);
+								} else {
+									testCoordinates[0]=	Number(this.hardpointCoordinates[i].XCoordinate)+30;
+									testCoordinates[1]=	Number(this.hardpointCoordinates[i].YCoordinate)+30;
+									missileCoordinates.push(testCoordinates);
+								}
+								break;
+							default:
+							break;
+						};
+					}
+
+					for(var k=0; k<missileCoordinates.length;k++){
+						c.moveTo(missileCoordinates[k][0], missileCoordinates[k][1]);
+						c.lineTo(missileCoordinates[k][0], missileCoordinates[k][1]+15);
+						c.stroke();
+					}
+					c.stroke();
+				}
+			},
+			fire:function(event){
+				var tempTargetCoordinates = [];
+				var rect = canvas.getBoundingClientRect();
+				if(((event.x - rect.left) < 600) && (Number(this.hardpointCoordinates[0].numMissiles)>0)) {
+					tempTargetCoordinates[0]=this.hardpointCoordinates[0].XCoordinate;
+					tempTargetCoordinates[1]=this.hardpointCoordinates[0].YCoordinate;
+					tempTargetCoordinates[2]=this.hardpointCoordinates[0].XCoordinate;
+					tempTargetCoordinates[3]=this.hardpointCoordinates[0].YCoordinate;
+					this.hardpointCoordinates[0].numMissiles = Number(this.hardpointCoordinates[0].numMissiles)-1;
+					tempTargetCoordinates[4]=event.x - rect.left;
+					tempTargetCoordinates[5]=event.y - rect.top;
+					missilesFired.push(tempTargetCoordinates);
+				} else if(((event.x - rect.left) >=600) && (Number(this.hardpointCoordinates[1].numMissiles)>0)){
+					tempTargetCoordinates[0]=this.hardpointCoordinates[1].XCoordinate;
+					tempTargetCoordinates[1]=this.hardpointCoordinates[1].YCoordinate;
+					tempTargetCoordinates[2]=this.hardpointCoordinates[1].XCoordinate;
+					tempTargetCoordinates[3]=this.hardpointCoordinates[1].YCoordinate;
+					this.hardpointCoordinates[1].numMissiles = Number(this.hardpointCoordinates[1].numMissiles)-1;
+					tempTargetCoordinates[4]=event.x - rect.left;
+					tempTargetCoordinates[5]=event.y - rect.top;
+					missilesFired.push(tempTargetCoordinates);
+				}
+			},
+			animateMissiles:function(){
+				var numMissilesFired = missilesFired.length;
+				var velocity = 0.05; 
+				if(numMissilesFired > 0){
+					for(var i=0;i<numMissilesFired;i++){
+						if (!(Math.abs(Math.abs(Number(missilesFired[i][2])) - Math.abs(Number(missilesFired[i][4]))) <= 0.9) && !(Math.abs(Math.abs(Number(missilesFired[i][3])) - Math.abs(Number(missilesFired[i][5]))) <= 0.9) ) {
+							c.moveTo(missilesFired[i][0],missilesFired[i][1]);
+							c.fillStyle="blue";
+							missilesFired[i][2] = Number(missilesFired[i][2]) + Number((missilesFired[i][4] - missilesFired[i][2]) * velocity);
+							missilesFired[i][3] = Number(missilesFired[i][3]) + Number((missilesFired[i][5] - missilesFired[i][3]) * velocity);
+							c.lineTo(missilesFired[i][2],missilesFired[i][3]);
+							c.stroke();
+						} else {
+							var explodedMissile = {};
+							explodedMissile.x = Number(missilesFired[i][2]);
+							explodedMissile.y = Number(missilesFired[i][3]);
+							explodedMissile.rad = 0;
+							firedMissileExplosions.push(explodedMissile);
+							missilesFired.splice(i,1);
+						}
+					}
+				}
+			},
+			explodeMissile:function(){
+				var numExplodedMissiles = firedMissileExplosions.length;
+				var velocity = 0.5;
+				c.fillStyle = 'red';
+				for(var i=0;i<numExplodedMissiles;i++){
+					if(Number(firedMissileExplosions[i].rad) < 50){
+						firedMissileExplosions[i].rad=Number(firedMissileExplosions[i].rad) + Number(velocity);
+						c.beginPath();
+		    			c.arc(Number(firedMissileExplosions[i].x), Number(firedMissileExplosions[i].y), Number(firedMissileExplosions[i].rad), 0, 2 * Math.PI, false);
+						c.closePath();
+						c.fill();
+					} else {
+						firedMissileExplosions.splice(i,1);
+					}
+				} 
+			}
+		};
+
+		var base = {
+			terrainColor: 'yellow',
+			draw:function(){
+				c.fillStyle = this.terrainColor;
+				c.beginPath();
+				baseLandCoordinateCount = baseLandLineSegments.length;
+				for(var i=0;i<baseLandCoordinateCount;i++){
+					if(i == 0){
+						c.moveTo(baseLandLineSegments[i].x1, baseLandLineSegments[i].y1);
+					} else {
+						c.lineTo(baseLandLineSegments[i].x2, baseLandLineSegments[i].y2);
+					}
+				}
+				c.fill();
+				c.stroke();
+			}
+		};
+
+		// function lineIntersect(x1,y1,x2,y2, x3,y3,x4,y4) {
+		//     var x=((x1*y2-y1*x2)*(x3-x4)-(x1-x2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4));
+		//     var y=((x1*y2-y1*x2)*(y3-y4)-(y1-y2)*(x3*y4-y3*x4))/((x1-x2)*(y3-y4)-(y1-y2)*(x3-x4));
+		//     if (isNaN(x)||isNaN(y)) {
+		//         return false;
+		//     } else {
+		//         if (x1>=x2) {
+		//             if (!(x2<=x&&x<=x1)) {return false;}
+		//         } else {
+		//             if (!(x1<=x&&x<=x2)) {return false;}
+		//         }
+		//         if (y1>=y2) {
+		//             if (!(y2<=y&&y<=y1)) {return false;}
+		//         } else {
+		//             if (!(y1<=y&&y<=y2)) {return false;}
+		//         }
+		//         if (x3>=x4) {
+		//             if (!(x4<=x&&x<=x3)) {return false;}
+		//         } else {
+		//             if (!(x3<=x&&x<=x4)) {return false;}
+		//         }
+		//         if (y3>=y4) {
+		//             if (!(y4<=y&&y<=y3)) {return false;}
+		//         } else {
+		//             if (!(y3<=y&&y<=y4)) {return false;}
+		//         }
+		//     }
+		//     return true;
+		// }
+
+		function draw(){
+
+        	c.clearRect(0,0,1000,1000);
+			base.draw();
+			missileHardpoints.draw();
+			missileHardpoints.animateMissiles();
+			incomingMissiles.animateIncomingMissiles();
+
+			missileHardpoints.explodeMissile();
+			incomingMissiles.checkForInterceptedMissiles();
+		}
+
+		setInterval(function(){
+			draw();
+		},1000/FPS);
+
+		incomingMissiles.generateMissilesForStage();
+		canvas.addEventListener("click", missileHardpoints.fire.bind(missileHardpoints), false);
+	</script>
+</html>
